@@ -43,17 +43,18 @@
 
 ; You can navigate to an element or to a sequence
 (select [FIRST :profile :name] users)                       ; select the first users name
-(select [ALL :profile :name] users)                         ; select all user names
+(select [ALL :profile :name] users)                        ; select all user names
 (select [ALL :profile (collect :name) :likes (pred> 10)] users) ; only selects the users with more than 10 likes
 (select [ALL :profile :address MAP-VALS] users)             ; only the address values (no keys)
 
 ; practise - use select to return [7] from mv
-
+(get-in my-map [:a 3 :c 2 :f 1])
 
 ; select the profile of users who live in London. pred= will select values that match the argument
+(select [ALL :profile (selected? :address :city (pred= "London"))] users)
 
 ; get jeff's state with specter:
-(select [] users)
+(select [ALL (selected? :username (pred= "jeff")) :profile :address :state] users)
 
 ; compared to using a pipeline:
 (as-> users u
@@ -64,15 +65,22 @@
 ; this is useful: https://github.com/nathanmarz/specter/wiki/Cheat-Sheet
 
 ; increment every users likes: (transform [PATH] function data)
-
+(transform [ALL :profile :likes] inc users)
 
 ; Transform each key of users map to a string
+(transform [ALL MAP-KEYS] name users) ;; just the users map
+(transform [ALL (recursive-path
+                 [] p
+                 (if-path map?
+                          (continue-then-stay MAP-VALS p)))
+            MAP-KEYS] name users)
 
 ; Transform each value of users addresses map to a keyword
+(transform [ALL :profile :address MAP-VALS] keyword users)
 
 ; Add :popular true to a profile if a users likes are over 10.
 ; Combine (setval [PATH] value data) and  (selected? :likes #(> % 10))
-(setval [] true users)
+(setval [ALL :profile (selected? :likes (pred> 10)) :popular] true users)
 
 ; credit https://www.youtube.com/watch?v=mXZxkpX5nt8&t=106s
 (def world
@@ -157,7 +165,10 @@
 ; practise: complete the functions
 (defn bank-give-dollar [world]
   "transfer $1 to all users from the bank"
-  nil
+  (transfer world
+            [:bank :funds]
+            [:people ALL :money]
+            1)
   )
 
 (comment
@@ -167,7 +178,10 @@
 
 (defn pay-poor-fee [world]
   "transfer $50 from any user with balance below $3,000 to the bank"
- nil
+  (transfer world
+            [:people ALL (selected? :money (pred< 3000)) :money]
+            [:bank :funds]
+            50)
   )
 
 (comment
@@ -178,7 +192,7 @@
 ; hint: selected?
 (defn rich-people [world]
   "return the names of all the people in world with more than $1,000,000,000"
-  nil
+  (select [:people ALL (selected? :money (pred> 1000000000))] world)
   )
 
 (comment
@@ -188,13 +202,16 @@
 
 (defn user [name]
   "returns the specter path required to get the map for a user by name"
-  nil
+  [:people ALL (selected? :name (pred= name))]
   )
 
 ; use the user function and the transfer function
 (defn transfer-users [world giver receiver amt]
   "transfers amt from giver to receiver"
-  nil
+  (transfer world
+            [(user giver) :money]
+            [(user receiver) :money]
+            amt)
   )
 
 (comment
@@ -206,8 +223,12 @@
 (defn bank-loyal-bonus
   "Bank gives $5000 to earliest three users"
   [world]
-  nil
+  (transfer world
+            [:bank :funds]
+            [:people (srange 0 3) ALL :money]
+            5000)
   )
+
 
 (comment
   (print-results
@@ -217,7 +238,7 @@
 ; hint setval and END
 (defn add-person [world name]
   "adds a user to the world with zero balance"
-  nil
+  (setval [:people END] [{:name name :money 0}] world)
   )
 
 (comment
@@ -227,7 +248,7 @@
 
 (defn remove-person [world name]
   "removes map entry for users with provided name"
-  nil
+  (setval [:people ALL (selected? :name (pred= name))] NONE world)
   )
 
 (comment
@@ -238,7 +259,10 @@
 (defn bank-recent-charity-bonus
   "Bank gives $1000 to most recent person with less than 5000 dollars"
   [world]
-  nil
+  (transfer world
+            [:bank :funds]
+            [:people (filterer :money (pred< 5000)) LAST :money]
+            1000)
   )
 
 (comment
@@ -249,7 +273,7 @@
 ; hint: setval and if-path
 (defn mark-wealth-status [world]
   "adds ':rich true' to user records with >= $100,000 otherwise ':not-so-rich true'"
-  nil
+  (setval [:people ALL (if-path (selected? :money (pred>= 100000)) :rich :not-so-rich)] true world)
   )
 
 (comment
@@ -260,8 +284,10 @@
 ; hint: transform and collect. Note that collected values are in a vector
 (defn mark-wealth-status-bool [world]
   "adds ':rich true' to user records with >= $100,000 otherwise ':rich false'"
-  nil
-  )
+  (transform [:people ALL (collect (selected? :money (pred>= 100000)))] (fn [[rich-person] not-rich-person]
+                                                                          (if rich-person
+                                                                            (assoc rich-person :rich true)
+                                                                            (assoc not-rich-person :rich false))) world))
 
 (comment
   (print-results
@@ -275,7 +301,7 @@
 
 ; use specter. hint: transform, submap and MAP-VALS
 (defn update-multi* [m keys f]
-  nil)
+  (transform [(submap keys) MAP-VALS] inc m))
 
 (update-multi {:a 500 :b 600 :c 700} [:a :b] inc)
 (update-multi* {:a 500 :b 600 :c 700} [:a :b] inc)
